@@ -6,6 +6,7 @@ from mlx_lm.tool_parsers import (
     function_gemma,
     gemma4,
     glm47,
+    inkling2,
     json_tools,
     kimi_k2,
     kimi_k3,
@@ -68,6 +69,10 @@ class TestToolParsing(unittest.TestCase):
             (
                 '<atem:invoke name="multiply">\n<atem:parameter name="a">12234585</atem:parameter><atem:parameter name="b">48838483920</atem:parameter>\n</atem:invoke>',
                 muse_spark,
+            ),
+            (
+                '{"name":"multiply","args":{"a":12234585,"b":48838483920}}',
+                inkling2,
             ),
         ]
 
@@ -146,6 +151,10 @@ class TestToolParsing(unittest.TestCase):
             (
                 '<atem:invoke name="get_current_temperature">\n<atem:parameter name="location">London</atem:parameter>\n</atem:invoke>',
                 muse_spark,
+            ),
+            (
+                '{"name":"get_current_temperature","args":{"location":"London"}}',
+                inkling2,
             ),
         ]
         tools = [
@@ -787,6 +796,39 @@ class TestToolParsing(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             muse_spark.parse_tool_call("no call here", None)
+
+    def test_inkling2(self):
+        from mlx_lm.chat_templates.inkling2 import RESPONSE_FORMAT
+        from mlx_lm.generate import TextStateMachine
+
+        transitions = dict(RESPONSE_FORMAT["transitions"])
+        transitions["tool"] = [(inkling2.tool_call_end, None)]
+        machine = TextStateMachine(transitions)
+        output = (
+            "<|message_model|><|content_thinking|>Read it first.<|end_message|>"
+            "<|message_model|>read_file<|content_invoke_tool_json|>"
+            '{"name":"read_file","args":{"path":"a.txt","lines":[1,2]}}'
+            "<|end_message|>"
+            "<|message_model|><|content_text|>Done.<|end_message|>"
+        )
+        # Fed in small chunks, as a stream splits the markers.
+        reader = machine.reader(state=RESPONSE_FORMAT["initial_state"])
+        delta = TextStateMachine.Delta()
+        for i in range(0, len(output), 3):
+            delta += reader.feed(output[i : i + 3])
+        delta += reader.finish()
+        self.assertEqual(delta.content, "Done.")
+        self.assertEqual(delta.reasoning, "Read it first.")
+        self.assertEqual(len(delta.tool_calls), 1)
+        self.assertEqual(
+            inkling2.parse_tool_call(delta.tool_calls[0], None),
+            {"name": "read_file", "arguments": {"path": "a.txt", "lines": [1, 2]}},
+        )
+
+        with self.assertRaises(ValueError):
+            inkling2.parse_tool_call("no call here", None)
+        with self.assertRaises(ValueError):
+            inkling2.parse_tool_call('{"name":"f","args":[1]}', None)
 
     def test_qwen3_coder_iso_date(self):
         """Qwen3 coder parser should not crash on ISO 8601 dates."""

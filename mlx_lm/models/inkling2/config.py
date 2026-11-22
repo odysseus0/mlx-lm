@@ -6,9 +6,17 @@ from mlx_lm.models.base import BaseModelArgs
 
 __all__ = [
     "ModelArgs",
+    "TOKENIZER_DEFAULTS",
     "TextArgs",
     "VisionArgs",
 ]
+
+# For checkpoints without them: split the messages of a turn and parse tool
+# calls.
+TOKENIZER_DEFAULTS = {
+    "chat_template_type": "inkling2",
+    "tool_parser_type": "inkling2",
+}
 
 
 @dataclass
